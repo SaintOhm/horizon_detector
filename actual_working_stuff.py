@@ -3,8 +3,6 @@ import random
 import cv2
 import numpy as np
 
-
-
 def show_img(img, name: str):
     # Вывод изображения для отслеживания процесса и дебага
     cv2.namedWindow(f'{name} image', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
