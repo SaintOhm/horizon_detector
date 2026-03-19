@@ -1,7 +1,9 @@
 import os
 import random
 import cv2
+import skimage.measure
 import numpy as np
+from math import atan2, cos, sin, pi, degrees, radians
 
 def show_img(img, name: str):
     # Вывод изображения для отслеживания процесса и дебага
@@ -44,7 +46,6 @@ def find_pitch_and_roll(path: str):
     # Изображение содержит белые "пятна" или неровности в местах солнца, водоёмов и т.п.
     # и чёрные в местах облаков
     _, bw_img = cv2.threshold(blur_img, 250, 255, cv2.THRESH_OTSU)
-    show_img(bw_img, 'B&W')
 
     # Находим белые контуры
     # cv2.CHAIN_APPROX_SIMPLE не подходит, потому что при крене близком к 0, он будет возвращать мало точек,
@@ -61,6 +62,29 @@ def find_pitch_and_roll(path: str):
     # Предполагаем, что пятно с самым длинным контуром = небо
     sky = sorted(contours, key=cv2.contourArea, reverse=True)[0]
 
+    bw_img = cv2.cvtColor(bw_img, cv2.COLOR_GRAY2BGR)
+
+    edge_points = [] # Лежат на краях изображения, поэтому точно не горизонт
+    non_edge_points = [] # Лежат на краях водоёмов, засветов, облаков и т.д.
+    for i in sky:
+        x, y = i[0][0], i[0][1]
+        if x == 0 or x == 99 or y == 0 or y == 99:
+            edge_points.append(i[0])
+            bw_img[y][x] = (0, 255, 255)
+        else:
+            non_edge_points.append(i[0])
+            bw_img[y][x] = (0, 0, 255)
+    show_img(bw_img, 'B&W')
+
+    # Горизонт находится вблизи какой-то границы объекта. Сглаженное изображение их теряет, поэтому берём серое
+    # После нахождения границ, уменьшим разрешение, чтобы убрать мелкие границы деревьев и пр.
+    # Помогает отфильтровать облака
+    edges = skimage.measure.block_reduce(
+        cv2.Canny(image=gray_img, threshold1=200, threshold2=250), # Находим чёткие границы по серому изображению
+        (5, 5), np.max                                             # Проходим кистью 5х5. Картинка стала ч/б 20х20
+    )
+    show_img(edges, 'Ransac edges')
+    
     return 'Work in progress'
 
 
@@ -70,6 +94,5 @@ print(find_pitch_and_roll(
     f'images\{random.choice(os.listdir('images'))}'
 ))
 
-while cv2.waitKey(10) != 27: # esc
-    pass
+while cv2.waitKey(10) != 27: pass # esc для выхода
 cv2.destroyAllWindows()
