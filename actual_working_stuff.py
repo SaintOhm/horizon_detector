@@ -129,8 +129,6 @@ def find_pitch_and_roll(path: str):
 
 os.system('cls')
 for name in os.listdir('images'):
-    print(find_pitch_and_roll(
-        f'images\{name}'
-    ))
+    print(find_pitch_and_roll(f'images\{name}'))
     if cv2.waitKey(0) == 27: break # esc для выхода
     cv2.destroyAllWindows()
