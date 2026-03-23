@@ -93,9 +93,10 @@ def find_pitch_and_roll(path: str):
     # Горизонт находится на границе какого-то объекта. Помогает отфильтровать облака
     edges = cv2.Canny(image=gray_img, threshold1=200, threshold2=250)
     show_img(edges, 'Edges')
-    # Находим чёткие границы по серому изображению
-    # Проходим кистью 2х2. Ч/б картинка 50х50
-    edges = skimage.measure.block_reduce(edges, (2, 2), np.max)
+    edges = skimage.measure.block_reduce(
+        edges, # Находим чёткие границы по серому изображению
+        (2, 2), np.max                                             # Проходим кистью 5х5. Ч/б картинка выглядит как 20х20
+    )
     show_img(edges, 'Gray edges skimage')
 
     show_img(
@@ -129,6 +130,8 @@ def find_pitch_and_roll(path: str):
 
 os.system('cls')
 for name in os.listdir('images'):
-    print(find_pitch_and_roll(f'images\{name}'))
+    print(find_pitch_and_roll(
+        f'images\{name}'
+    ))
     if cv2.waitKey(0) == 27: break # esc для выхода
     cv2.destroyAllWindows()
