@@ -1,8 +1,7 @@
 import os
 import cv2
-import skimage.measure #pip uninstall scikit-image
 import numpy as np
-from math import atan2, cos, sin, pi, degrees, radians
+#from math import atan2, cos, sin, pi, degrees, radians
 
 # CONSTANTS
 #https://www.rapidtables.com/convert/color/rgb-to-hsv.html
@@ -36,6 +35,22 @@ def cropNscale(img: np.array):
     # Теперь уменьшение
     return cv2.resize(img, (100, 100))
 
+def fitlineRANSAC(points: list):
+    points = np.array(points)
+    n_points = len(points)
+    best_model = (0, 0) # k, b in y=kx+b
+    best_inliers_count = 0
+    for _ in range(50):
+        p1, p2 = points[np.random.choice(n_points, 2, replace=False)]
+        if p1[0] == p2[0]: continue
+        k = (p2[1] - p1[1]) / (p2[0] - p1[0])
+        b = p1[1] - k[p1[0]]
+        n_inliers = 0
+        if n_inliers > best_inliers_count:
+            best_inliers_count = n_inliers
+
+    return best_model
+
 def HSVfilter(img: np.array):
     img  = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     yell = cv2.inRange(img, LOWER_YELL, UPPER_YELL)
@@ -57,39 +72,43 @@ def find_pitch_and_roll(path: str, debug_mode: bool = False):
     blur_img = cv2.bilateralFilter(blue_filtered_gray, 9, 60, 50)
     _, bw_img = cv2.threshold(blue_filtered_gray, 250, 255, cv2.THRESH_OTSU)
     bw_img = cv2.bitwise_and(bw_img, mask_fields)
-    edges = cv2.Canny(image=blur_img, threshold1=200, threshold2=250)
+    dilated_edges = cv2.dilate(
+        cv2.Canny(image=blur_img, threshold1=200, threshold2=250),
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    )
 
     contours, _ = cv2.findContours(bw_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)     
     sky = sorted(contours, key=cv2.contourArea, reverse=True)[0]
 
     edge_points = []     # Лежат на краях изображения, поэтому точно не горизонт
     non_edge_points = [] # Лежат на краях водоёмов, засветов и т.д.
-    for i in sky:
-        x, y = i[0][0], i[0][1]
+    for p in sky:
+        x, y = p[0]
         if x == 0 or x == 99 or y == 0 or y == 99:
-            edge_points.append(i[0])
+            edge_points.append(p[0])
         else:
-            non_edge_points.append(i[0])
+            non_edge_points.append(p[0])
 
-    avg = np.average(edge_points, axis=0) if edge_points else []
-
+    avg = np.average(edge_points, axis=0).astype('uint8') if edge_points else []
+    
+    non_edge_points = [p for p in non_edge_points if dilated_edges[p[1]][p[0]]]
+    
     if debug_mode:
         bw_img = cv2.cvtColor(bw_img, cv2.COLOR_GRAY2BGR)
-        if avg:
-            bw_img[int(avg[1])][int(avg[0])] = (0, 255, 255)
+        if len(avg) > 0:
+            bw_img[avg[1]][avg[0]] = (0, 255, 255)
         for pos in edge_points:
             bw_img[pos[1]][pos[0]] = (0, 255, 255)
         for pos in non_edge_points:
-            bw_img[pos[1]][pos[0]] = (0, 0, 255)
-            
+            bw_img[pos[1]][pos[0]] = (0,   0, 255)
+        
         showImg(frame, 'Original')
         showImg(cv2.bitwise_or(mask_blue, cv2.bitwise_not(mask_fields)), 'Mask')
         showImg(blue_filtered_gray, 'Blue filter gray')
         showImg(blur_img, 'Blur')
         showImg(bw_img, 'B&W')
-        showImg(edges, 'Edges')
+        showImg(dilated_edges, 'Edges')
         cv2.imwrite(f'debug_images\{path}', cv2.bitwise_and(frame, frame, mask=mask_fields))
-    
     return ''
 
 os.system('cls')
