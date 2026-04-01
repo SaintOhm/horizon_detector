@@ -1,11 +1,9 @@
-import os
 import cv2
 import numpy as np
-#from math import atan2, cos, sin, pi, degrees, radians
+
 
 # CONSTANTS
-#https://www.rapidtables.com/convert/color/rgb-to-hsv.html
-#https://www.selecolor.com/en/hsv-color-picker/
+FOV = 60
 LOWER_YELL = np.array([ 15,  50, 155])
 UPPER_YELL = np.array([ 22, 205, 255])
 LOWER_BLUE = np.array([ 90,   0, 100])
@@ -15,43 +13,7 @@ UPPER_RED1 = np.array([ 30,  35, 255])
 LOWER_RED2 = np.array([170,   0, 175])
 UPPER_RED2 = np.array([179,  35, 255])
 
-
-def showImg(img: np.array, name: str = 'N/A'):
-    # Вывод изображения для отслеживания процесса и дебага
-    cv2.namedWindow(name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-    cv2.resizeWindow(name, 300, 300)
-    cv2.imshow(name, img)
-
-def cropNscale(img: np.array):
-    # Сначала обрезка изображения до квадрата
-    width, height = img.shape[1::-1]
-    if width > height:
-        margin = (width - height)/2
-        img = img[:, int(margin):int(width - margin)]
-    else:
-        margin = (height - width)/2
-        img = img[int(margin):int(height - margin), :]
-    
-    # Теперь уменьшение
-    return cv2.resize(img, (100, 100))
-
-def fitlineRANSAC(points: list):
-    points = np.array(points)
-    n_points = len(points)
-    best_model = (0, 0) # k, b in y=kx+b
-    best_inliers_count = 0
-    for _ in range(50):
-        p1, p2 = points[np.random.choice(n_points, 2, replace=False)]
-        if p1[0] == p2[0]: continue
-        k = (p2[1] - p1[1]) / (p2[0] - p1[0])
-        b = p1[1] - k[p1[0]]
-        n_inliers = 0
-        if n_inliers > best_inliers_count:
-            best_inliers_count = n_inliers
-
-    return best_model
-
-def HSVfilter(img: np.array):
+def HSVfilter(img:np.ndarray):
     img  = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     yell = cv2.inRange(img, LOWER_YELL, UPPER_YELL)
     blue = cv2.inRange(img, LOWER_BLUE, UPPER_BLUE)
@@ -59,29 +21,76 @@ def HSVfilter(img: np.array):
         cv2.inRange(img, LOWER_RED1, UPPER_RED1),
         cv2.inRange(img, LOWER_RED2, UPPER_RED2)
     )
-    return cv2.bitwise_or(blue, red), cv2.bitwise_not(yell)
+    return cv2.bitwise_or(blue, red), yell
 
-#def find_pitch_and_roll(frame: np.array, debug_mode: bool = False):
-def find_pitch_and_roll(path: str, debug_mode: bool = False):
+def showImg(img:np.ndarray, name:str=''):
+    # Вывод изображения для отслеживания процесса и дебага
+    w, h = img.shape[1::-1]
+    cv2.namedWindow(name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+    cv2.resizeWindow(name, int(300 * w/h), 300)
+    cv2.imshow(name, img)
 
-    frame = cropNscale(cv2.imread(f'images\{path}'))
-    #frame = crop_and_scale(frame)
-    mask_blue, mask_fields = HSVfilter(frame)
-    blue_filtered_gray = cv2.add(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), mask_blue)
+def ransacPolyfit(points:list, threshold:float=2.5):
+    points = np.asarray(points)
+    n_points = len(points)
+    max_inliers = 4
+    best_mask = None
 
-    blur_img = cv2.bilateralFilter(blue_filtered_gray, 9, 60, 50)
+    for _ in range(20):
+        p1, p2 = points[np.random.choice(n_points, 2, replace=False)]
+        if np.array_equal(p1, p2): continue 
+        
+        line_vec = p2 - p1
+        line_len = np.linalg.norm(line_vec)
+        
+        # d = |(p2-p1) x (p1-p0)| / |p2-p1|
+        distances = np.abs(np.cross(line_vec, p1 - points)) / line_len
+        inliers_mask = distances < threshold
+        n_inliers = np.sum(inliers_mask)
+        
+        if n_inliers > max_inliers:
+            max_inliers = n_inliers
+            best_mask = inliers_mask
+
+    k, b = None, None
+    if best_mask is not None:
+        try:
+            inliers = points[best_mask]
+            k, b = np.polyfit(inliers[:, 0], inliers[:, 1], 1)
+        except np.linalg.LinAlgError:
+            # Линия горизонта вертикальная
+            b = np.mean(inliers[:, 0])
+    return k, b
+
+def findPitchRoll(frame:np.ndarray, debug_mode:bool=False) -> tuple[None, None] | tuple[np.float64, np.float64]:
+    pitch, roll = None, None
+    w, h = frame.shape[1::-1]
+    c_x, c_y = w//2, h//2
+
+    # Сжимаем изображение, чтобы уменьшить число точек
+    # Не обрезаем, чтобы сохранить изображение полностью
+    resized = cv2.resize(frame, (100, 100))
+    
+    # Получаем маски неба/воды и полей (поля часто засвечивают)
+    mask_blue, mask_fields = HSVfilter(resized)
+    # Переводим изображение в оттенки серого с наложением маски,
+    # чтобы высветлить небо и сделать его более явным
+    blue_filtered_gray = cv2.add(cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY), mask_blue)
+    # Делаем изображение бинарным
     _, bw_img = cv2.threshold(blue_filtered_gray, 250, 255, cv2.THRESH_OTSU)
-    bw_img = cv2.bitwise_and(bw_img, mask_fields)
-    dilated_edges = cv2.dilate(
-        cv2.Canny(image=blur_img, threshold1=200, threshold2=250),
-        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    )
+    # В солнечный день поля засвечивают, поэтому закрываем их маской
+    bw_img = cv2.bitwise_and(bw_img, cv2.bitwise_not(mask_fields))
 
-    contours, _ = cv2.findContours(bw_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)     
+    # Ищем контур неба
+    contours, _ = cv2.findContours(bw_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    if len(contours) == 0: return None, None
+
+    # Предполагаем, что самый большой контур = небо
     sky = sorted(contours, key=cv2.contourArea, reverse=True)[0]
 
+    # Сортируем точки
     edge_points = []     # Лежат на краях изображения, поэтому точно не горизонт
-    non_edge_points = [] # Лежат на краях водоёмов, засветов и т.д.
+    non_edge_points = [] # Лежат на горизонте и краях водоёмов, засветов и т.д.
     for p in sky:
         x, y = p[0]
         if x == 0 or x == 99 or y == 0 or y == 99:
@@ -89,35 +98,55 @@ def find_pitch_and_roll(path: str, debug_mode: bool = False):
         else:
             non_edge_points.append(p[0])
 
-    avg = np.average(edge_points, axis=0).astype('uint8') if edge_points else []
+    non_edge_points = non_edge_points[::5]
+    edge_points = edge_points[::10]
+
+    # Точки на краях изображения используем для того, чтобы определить ориентацию
+    avg = np.average(edge_points, axis=0).astype('int8') if edge_points else []
+    if len(avg) == 0:
+        # Нельзя понять, где небо
+        return pitch, roll
+
+    # Получаем уравнение прямой по точкам
+    k, b = ransacPolyfit(non_edge_points)
+    if b is None:
+        # Горизонт не найден
+        return pitch, roll
+    elif k is None:
+        # Горизонт строго вертикальный
+        b = b * w/100
+        roll = 90 if b < avg[0] else -90
+        pitch = (c_x - b) / h * FOV * np.sign(roll)
+        return pitch, roll
     
-    non_edge_points = [p for p in non_edge_points if dilated_edges[p[1]][p[0]]]
+    sky_is_down = 0 if k*avg[0]+b > avg[1] else 1
+    # Масштабируем коэффициенты под оригинал
+    k, b = k * h/w, b * h/100
+    
+    # Проекция центра изображения на горизонт
+    proj = [c_x, c_y] - np.array([k, -1]) * (k*c_x-c_y+b) / (k**2 + 1)
+    # Число пикселей между проекцией и центром
+    dist_to_horizon = np.linalg.norm(proj - np.array([c_x, c_y]))
+    # Проверяем, куда смотрит нос. Подобрал через таблицу истинности
+    is_nose_up = (c_y > k*c_x+b) ^ sky_is_down
+    # Определяем тангаж через FOV
+    pitch = dist_to_horizon/h*FOV * ((-1)**is_nose_up)
+    # Определяем крен с поправкой на то, где небо
+    roll = -np.rad2deg(np.atan(k)) + 180 * sky_is_down * np.sign(k)
     
     if debug_mode:
         bw_img = cv2.cvtColor(bw_img, cv2.COLOR_GRAY2BGR)
-        if len(avg) > 0:
-            bw_img[avg[1]][avg[0]] = (0, 255, 255)
-        for pos in edge_points:
-            bw_img[pos[1]][pos[0]] = (0, 255, 255)
-        for pos in non_edge_points:
-            bw_img[pos[1]][pos[0]] = (0,   0, 255)
-        
-        showImg(frame, 'Original')
-        showImg(cv2.bitwise_or(mask_blue, cv2.bitwise_not(mask_fields)), 'Mask')
-        showImg(blue_filtered_gray, 'Blue filter gray')
-        showImg(blur_img, 'Blur')
-        showImg(bw_img, 'B&W')
-        showImg(dilated_edges, 'Edges')
-        cv2.imwrite(f'debug_images\{path}', cv2.bitwise_and(frame, frame, mask=mask_fields))
-    return ''
 
-os.system('cls')
-for name in os.listdir('images'):
-    print(name)
-    print(find_pitch_and_roll(
-        #cv2.imread(f'images\{name}'),
-        name,
-        debug_mode = True
-    ))
-    if cv2.waitKey(0) == 27: break # esc для выхода
-    cv2.destroyAllWindows()
+        bw_img[50][50] = (0, 255, 0)
+        bw_img[avg[1]][avg[0]] = (0, 255, 0)
+        for pos in edge_points:
+            bw_img[pos[1]][pos[0]] = (255, 0, 0)
+        for pos in non_edge_points:
+            bw_img[pos[1]][pos[0]] = (0, 0, 255)
+        
+        cv2.line(frame, (0, int(b)), (w, int(k*(w-1)+b)), (0,0,255), 5)
+        cv2.line(frame, (c_x, c_y), proj.astype('int16'), (0,0,255), 5)
+        showImg(bw_img, 'Binary')
+        showImg(frame, 'Original')
+        #return pitch, roll, frame, bw_img
+    return pitch, roll
