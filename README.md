@@ -43,7 +43,7 @@
 Во время тестов выявлено, что алгоритм выдаёт ошибочные данные в гористой местности. Ввиду отсутствия условно высоких гор на территории Беларуси, этот недостаток менее существенен по сравнению со следующим.
 ![deb_img_0](https://github.com/user-attachments/assets/1a4a3d90-f019-4af2-a41d-195e1df878f6)
 
-Более критичным является засвет от водоёмов (ожидаемо) и лесов в синей дымке.
+Более критичным является засвет от водоёмов (ожидаемо) и лесов в синей дымке на границе с небом.
 ![deb_img_1](https://github.com/user-attachments/assets/7473228b-36d8-41e8-be64-6c3cd4e2d4fa)
 ![deb_img_2](https://github.com/user-attachments/assets/bb8e54c2-a74a-45aa-9304-9d33cfda0b6c)
 ![deb_img_3](https://github.com/user-attachments/assets/d228e2f5-daa7-4531-ae3a-a97ce9d328fe)
