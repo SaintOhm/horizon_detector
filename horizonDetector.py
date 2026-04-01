@@ -119,20 +119,20 @@ def findPitchRoll(frame:np.ndarray, debug_mode:bool=False) -> tuple[None, None] 
         pitch = (c_x - b) / h * FOV * np.sign(roll)
         return pitch, roll
     
-    sky_is_down = 0 if k*avg[0]+b > avg[1] else 1
     # Масштабируем коэффициенты под оригинал
     k, b = k * h/w, b * h/100
     
+    is_sky_down = 0 if k*avg[0]+b > avg[1] else 1
+    # Проверяем, куда смотрит нос. Подобрал через таблицу истинности
+    is_nose_up = (c_y > k*c_x+b) ^ is_sky_down
     # Проекция центра изображения на горизонт
     proj = [c_x, c_y] - np.array([k, -1]) * (k*c_x-c_y+b) / (k**2 + 1)
     # Число пикселей между проекцией и центром
     dist_to_horizon = np.linalg.norm(proj - np.array([c_x, c_y]))
-    # Проверяем, куда смотрит нос. Подобрал через таблицу истинности
-    is_nose_up = (c_y > k*c_x+b) ^ sky_is_down
     # Определяем тангаж через FOV
     pitch = dist_to_horizon/h*FOV * ((-1)**is_nose_up)
     # Определяем крен с поправкой на то, где небо
-    roll = -np.rad2deg(np.atan(k)) + 180 * sky_is_down * np.sign(k)
+    roll = -np.rad2deg(np.atan(k)) + 180 * is_sky_down * np.sign(k)
     
     if debug_mode:
         bw_img = cv2.cvtColor(bw_img, cv2.COLOR_GRAY2BGR)
