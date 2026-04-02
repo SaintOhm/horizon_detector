@@ -59,7 +59,7 @@ def ransacPolyfit(points:list, threshold:float=2.5):
             k, b = np.polyfit(inliers[:, 0], inliers[:, 1], 1)
         except np.linalg.LinAlgError:
             # Линия горизонта вертикальная
-            b = np.mean(inliers[:, 0])
+            b = np.average(inliers[:, 0])
     return k, b
 
 def findPitchRoll(frame:np.ndarray, debug_mode:bool=False) -> tuple[None, None] | tuple[np.float64, np.float64]:
