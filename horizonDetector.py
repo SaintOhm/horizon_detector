@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from math import inf
 
 
 # CONSTANTS
@@ -59,7 +60,7 @@ def ransacPolyfit(points:list, threshold:float=2.5):
             k, b = np.polyfit(inliers[:, 0], inliers[:, 1], 1)
         except np.linalg.LinAlgError:
             # Линия горизонта вертикальная
-            b = np.average(inliers[:, 0])
+            k, b = inf, np.average(inliers[:, 0])
     return k, b
 
 def findPitchRoll(frame:np.ndarray, debug_mode:bool=False) -> tuple[None, None] | tuple[np.float64, np.float64]:
@@ -109,10 +110,10 @@ def findPitchRoll(frame:np.ndarray, debug_mode:bool=False) -> tuple[None, None] 
 
     # Получаем уравнение прямой по точкам
     k, b = ransacPolyfit(non_edge_points)
-    if b is None:
+    if k is None:
         # Горизонт не найден
         return pitch, roll
-    elif k is None:
+    elif k is inf:
         # Горизонт строго вертикальный
         b = b * w/100
         roll = 90 if b < avg[0] else -90
